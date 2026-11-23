@@ -1,0 +1,13 @@
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const vm=require('node:vm');
+const S=require('../js/state.js'), E=require('../js/core.js');
+const original={...S.defaults(),xp:40,answered:5,correct:4,history:[{title:'Lei de Ohm',detail:'12 V / 6 Ω = 2 A',date:'2026-11-23T12:00:00Z'}]};
+test('dados da versão 1.0 continuam legíveis na 1.1',()=>{const result=S.restore(JSON.stringify(original),E);assert.deepEqual(result.state,original);assert.deepEqual(result.warnings,[]);});
+test('JSON corrompido e estruturas incompatíveis não interrompem a inicialização',()=>{for(const raw of ['{quebrado','null','[]','{"version":99}']){const r=S.restore(raw,E);assert.deepEqual(r.state,S.defaults());assert.ok(r.warnings.length);}assert.deepEqual(S.restore(null,E).state,S.defaults());});
+test('circuito inválido é recuperado sem descartar histórico e pontuação',()=>{const r=S.restore(JSON.stringify({...original,lab:{mode:'series',voltage:12,resistors:[0]}}),E);assert.deepEqual(r.state.lab,S.defaults().lab);assert.deepEqual(r.state.history,original.history);assert.equal(r.state.xp,40);assert.equal(r.state.correct,4);assert.ok(r.warnings.length);});
+test('registros inválidos são descartados sem esconder os registros válidos',()=>{const r=S.restore(JSON.stringify({...original,history:[null,{},original.history[0],{title:'x',detail:'y',date:'inválida'}]}),E);assert.deepEqual(r.state.history,original.history);});
+test('rotas diretas e inválidas têm destino seguro',()=>{for(const route of ['laboratorio','ohm','energia','unidades','aprender','historico'])assert.equal(S.routeKey('#'+route),route);for(const route of ['#constructor','#__proto__','#toString','#main','#inexistente',''])assert.equal(S.routeKey(route),'laboratorio');});
+test('a página funciona sem referências externas a scripts, CSS ou imagens',()=>{const html=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');assert.doesNotMatch(html,/<script\b[^>]*\bsrc=/i);assert.doesNotMatch(html,/<link\b[^>]*rel="stylesheet"/i);assert.doesNotMatch(html,/<img\b[^>]*src=/i);assert.match(html,/class="brand-icon"/);assert.match(html,/v1\.1/);assert.doesNotMatch(html,/ELETRILAB:(HEAD|SCRIPTS|LOGO)/);const scripts=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];assert.equal(scripts.length,4);scripts.forEach(([,source])=>new vm.Script(source));});
